@@ -92,6 +92,9 @@ def _dump(a) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] not in COMMANDS and not argv[0].startswith("-"):
         argv.insert(0, "search")
