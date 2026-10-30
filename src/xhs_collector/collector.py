@@ -72,6 +72,7 @@ class Config:
     sort_sales: bool = False
     delay: tuple[float, float] = (2.0, 4.0)
     max_idle_swipes: int = 3
+    max_swipes: int | None = None
     wait_timeout: float = 10.0
     out_dir: Path = Path("data/collector")
 
@@ -166,7 +167,11 @@ class Collector:
             if pred(nodes, pkg, act):
                 return nodes
             time.sleep(0.8)
-        self._fail(f"等待超时：{what}（当前 {self.adb.focus()}）")
+        pkg, act = self.adb.focus()
+        hint = ""
+        if pkg != PKG:
+            hint = f"；手机前台不是小红书（{pkg or '无焦点，可能熄屏或正在切换界面'}），请回到桌面后重试，采集期间不要操作手机"
+        self._fail(f"等待超时：{what}（当前 {pkg, act}）{hint}")
 
     def _fail(self, msg: str):
         self.cfg.out_dir.mkdir(parents=True, exist_ok=True)
@@ -275,6 +280,7 @@ class Collector:
         seen: set[str] = set()
         records: list[Record] = []
         idle, prev_keys, carry = 0, frozenset(), "今天"
+        swipes = 0
         while len(records) < limit:
             self.control.check()
             if cap.left <= 0:
@@ -309,7 +315,11 @@ class Collector:
             if idle >= self.cfg.max_idle_swipes:
                 log.info("列表已到底")
                 break
+            if self.cfg.max_swipes is not None and swipes >= self.cfg.max_swipes:
+                log.info("已达下滑屏数上限 %s", swipes)
+                break
             prev_keys = keys
+            swipes += 1
             self.adb.swipe_up(self.screen_h)
             self._sleep(1.5, 2.5)
         return records
@@ -329,6 +339,38 @@ class Collector:
     def run(self, keyword: str, filters: Filters, cap: DailyCap, on_record=None, limit: int | None = None):
         self.open_goods_tab(keyword)
         return self._collect(f"关键词:{keyword}", filters, cap, on_record, list_act=SEARCH_ACT, limit=limit)
+
+    def run_keyword_shops(self, keyword: str, filters: Filters, cap: DailyCap, on_record=None, *,
+                          shops: int = 3, per_shop: int = 10, new_tab: bool = False, sort: str | None = None):
+        """关键词搜索后，依次进入前 N 个不同的店铺，每个店铺采 M 个商品。"""
+        self.open_goods_tab(keyword)
+        done: set[str] = set()
+        records: list[Record] = []
+        idle, prev_keys, swipes = 0, frozenset(), 0
+        while len(done) < shops and cap.left > 0:
+            self.control.check()
+            nodes = self._wait(lambda ns, pkg, act: self._has_cards(ns, SEARCH_ACT, pkg, act), "商品列表")
+            cards = parse_cards(nodes, self.screen_h)
+            todo = [c for c in cards if c.shop and c.shop_tap and c.shop not in done]
+            if todo:
+                card = todo[0]
+                done.add(card.shop)
+                self.adb.tap(*card.shop_tap)
+                nodes = self._wait(lambda ns, pkg, act: pkg == PKG and act.startswith(SHOP_ACT), "店铺页")
+                seller_id = self.adb.top_shop_id() or self._fail("读不到店铺 ID")
+                self._shop_tab(nodes, new_tab, sort)
+                records += self._collect(f"关键词:{keyword}/店铺:{card.shop}", filters, cap, on_record,
+                                         list_act=SHOP_ACT, shop_id=seller_id, new_mode=new_tab, limit=per_shop)
+                self.adb.back()
+                continue
+            keys = frozenset(c.key for c in cards)
+            idle = idle + 1 if keys == prev_keys else 0
+            if idle >= self.cfg.max_idle_swipes or (self.cfg.max_swipes is not None and swipes >= self.cfg.max_swipes):
+                break
+            prev_keys, swipes = keys, swipes + 1
+            self.adb.swipe_up(self.screen_h)
+            self._sleep(1.5, 2.5)
+        return records
 
     def run_shop(self, seller_id: str, filters: Filters, cap: DailyCap, on_record=None, *,
                  new_tab: bool = False, sort: str | None = None, limit: int | None = None):

@@ -87,8 +87,11 @@ class Adb:
     def top_shop_id(self) -> str | None:
         return self._top_intent_id(r"shop_detail\?seller_id=([0-9a-f]{24})")
 
+    def screenshot_bytes(self) -> bytes:
+        return self._run("exec-out", "screencap", "-p", binary=True)
+
     def screenshot(self, path: str) -> None:
-        data = self._run("exec-out", "screencap", "-p", binary=True)
+        data = self.screenshot_bytes()
         with open(path, "wb") as f:
             f.write(data)
 

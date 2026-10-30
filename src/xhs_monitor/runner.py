@@ -46,7 +46,7 @@ def is_due(store: Store, item_id: str, now: datetime, window: tuple[int, int] = 
 
 
 def due_ids(store: Store, now: datetime, window: tuple[int, int] = DEFAULT_WINDOW) -> list[str]:
-    return [i.id for i in store.list_items() if is_due(store, i.id, now, window)]
+    return [i.id for i in store.list_items() if i.status == "active" and is_due(store, i.id, now, window)]
 
 
 def _record_shop(store: Store, f, now: datetime) -> None:

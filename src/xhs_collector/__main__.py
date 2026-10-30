@@ -11,7 +11,7 @@ from . import keepawake
 from .adb import Adb, AdbError, connect_wifi, enable_wifi, list_devices
 from .collector import Abort, Collector, Config, DailyCap, Filters, Stop, write_csv, write_xlsx
 
-COMMANDS = {"search", "shop", "dump", "devices", "wifi-on", "connect", "awake"}
+COMMANDS = {"search", "shop", "keyword-shops", "dump", "devices", "wifi-on", "connect", "awake"}
 ALL_LIMIT = 100000
 
 
@@ -31,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--category", default="未分类")
     common.add_argument("--xlsx", action="store_true", help="同时输出 Excel")
     common.add_argument("--no-keep-awake", action="store_true", help="不在采集期间自动让手机常亮")
+    common.add_argument("--max-swipes", type=int, help="每个列表最多下滑多少屏")
 
     p = argparse.ArgumentParser(prog="xhs_collector", description="用 ADB 在小红书里采集商品 ID")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -45,6 +46,14 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument("--name", action="append", default=[], help="店铺名称，可重复")
     h.add_argument("--sort", choices=["综合", "销量", "新品", "价格"], help="店铺商品排序")
     h.add_argument("--new-days", type=int, help="只采最近 N 天上新的商品（使用“上新”标签）")
+
+    k = sub.add_parser("keyword-shops", parents=[common], help="按关键词找店铺，再逐个采集这些店铺的商品")
+    k.add_argument("keywords", nargs="*", help="关键词，可多个")
+    k.add_argument("--keywords-file", type=Path, help="每行一个关键词")
+    k.add_argument("--shops", type=int, default=3, help="每个关键词取前几家店")
+    k.add_argument("--per-shop", type=int, default=10, help="每家店最多采多少个商品")
+    k.add_argument("--sort", choices=["综合", "销量", "新品", "价格"], help="店铺商品排序")
+    k.add_argument("--new-days", type=int, help="只采最近 N 天上新的商品")
 
     d = sub.add_parser("dump", help="导出当前界面的控件和截图，用于排查定位问题")
     d.add_argument("--serial")
@@ -114,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"失败：{e}", file=sys.stderr)
         return 1
 
-    if a.cmd == "search" and not _keywords(a):
+    if a.cmd in ("search", "keyword-shops") and not _keywords(a):
         print("请提供关键词或 --keywords-file", file=sys.stderr)
         return 2
     if a.cmd == "shop" and not (a.id or a.name):
@@ -122,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     cfg = Config(instance=a.instance, limit=ALL_LIMIT if a.all else a.limit, daily_cap=a.daily_cap,
-                 sort_sales=getattr(a, "sort_sales", False), out_dir=a.out)
+                 sort_sales=getattr(a, "sort_sales", False), out_dir=a.out, max_swipes=a.max_swipes)
     cap = DailyCap(a.out / "state.json", a.daily_cap)
     if cap.left <= 0:
         print(f"今日已点开 {cap.used} 个商品，达到上限 {a.daily_cap}")
@@ -139,6 +148,11 @@ def main(argv: list[str] | None = None) -> int:
             if a.cmd == "search":
                 for kw in _keywords(a):
                     records += col.run(kw, filters, cap, show)
+            elif a.cmd == "keyword-shops":
+                for kw in _keywords(a):
+                    records += col.run_keyword_shops(kw, filters, cap, show, shops=a.shops,
+                                                     per_shop=a.per_shop, new_tab=a.new_days is not None,
+                                                     sort=a.sort)
             else:
                 new_tab = a.new_days is not None
                 for sid in a.id:
@@ -152,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"已按要求停止：{e}")
 
     if records:
-        label = a.keywords[0] if a.cmd == "search" and a.keywords else a.cmd
+        label = a.keywords[0] if a.cmd in ("search", "keyword-shops") and a.keywords else a.cmd
         base = a.out / f"{datetime.now():%Y%m%d-%H%M%S}-{label}"
         write_csv(base.with_suffix(".csv"), records)
         print(f"已保存 {len(records)} 条到 {base.with_suffix('.csv')}")

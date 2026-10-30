@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -8,15 +9,17 @@ from pathlib import Path
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Body, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
+from . import collector_api
 from . import settings as cfg
 from .fetcher import Fetcher
 from .increments import TZ, Delta, Snap, compute, daily_deltas, delta
 from .notify import Notifier
 from .resolve import resolve_items
 from .runner import HISTORY_WINDOW, due_ids, run_once
+from .stats import daily_totals
 from .store import Store
 
 log = logging.getLogger("xhs_monitor")
@@ -89,6 +92,30 @@ def create_app(db_path: str | None = None) -> FastAPI:
         await state["client"].aclose()
 
     app = FastAPI(title="小红书销量监控", lifespan=lifespan)
+    token = os.getenv("XHS_API_TOKEN", "")
+
+    @app.middleware("http")
+    async def require_token(request, call_next):
+        path = request.url.path
+        if token and path.startswith("/api/") and path != "/api/auth/required":
+            auth = request.headers.get("authorization", "")
+            got = auth[7:] if auth.lower().startswith("bearer ") else request.headers.get("x-api-token", "")
+            if not hmac.compare_digest(got.encode(), token.encode()):
+                return JSONResponse({"detail": "需要访问口令"}, status_code=401)
+        return await call_next(request)
+
+    @app.get("/api/auth/required")
+    def auth_required():
+        return {"required": bool(token)}
+
+    async def add_ids(ids: list[str], category: str) -> list[str]:
+        now = datetime.now(timezone.utc)
+        new = [i for i in ids if state["store"].add_item(i, category, now)]
+        if new:
+            asyncio.create_task(run_job(new))
+        return new
+
+    collector_api.install(app, state, add_ids, Path(os.getenv("XHS_COLLECTOR_DIR", "data/collector")))
 
     @app.get("/")
     def index():
@@ -117,7 +144,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
             latest = snaps[-1] if snaps else store.last_snapshot(it.id)
             rows.append({
                 "id": it.id, "title": it.title, "price": it.price, "category": it.category,
-                "shop_id": it.shop_id, "shop_name": shop_names.get(it.shop_id),
+                "shop_id": it.shop_id, "shop_name": shop_names.get(it.shop_id), "status": it.status,
                 "shop_sales": it.shop_sales, "sales": store.last_raw(it.id),
                 "last_fetch_at": it.last_fetch_at.isoformat() if it.last_fetch_at else None,
                 "hour": _delta(m.hour), "today": _delta(m.today), "yesterday": _delta(m.yesterday),
@@ -139,12 +166,14 @@ def create_app(db_path: str | None = None) -> FastAPI:
     @app.post("/api/items/bulk")
     def bulk(body: dict = Body(...)):
         ids, action = body.get("ids") or [], body.get("action")
-        if not isinstance(ids, list) or action not in ("delete", "category"):
+        if not isinstance(ids, list) or action not in ("delete", "category", "pause", "resume"):
             raise HTTPException(400, "参数不合法")
         store, n = state["store"], 0
         for i in ids:
             if action == "delete":
                 n += store.delete_item(str(i))
+            elif action in ("pause", "resume"):
+                n += store.set_status(str(i), "paused" if action == "pause" else "active")
             elif store.get_item(str(i)):
                 store.set_category(str(i), str(body.get("category") or "未分类"))
                 n += 1
@@ -166,6 +195,22 @@ def create_app(db_path: str | None = None) -> FastAPI:
             "top_today": [{k: r[k] for k in ("id", "title", "price", "sales", "today", "hour")} for r in top[:10]],
             "alerts": store.recent_alerts(10), "runs": store.recent_runs(5),
         }
+
+    @app.get("/api/stats")
+    def stats(days: int = 14):
+        store, now = state["store"], datetime.now(timezone.utc)
+        rows = item_rows()
+        cats: dict[str, dict] = {}
+        for r in rows:
+            c = cats.setdefault(r["category"], {"category": r["category"], "items": 0, "today": 0, "d7": 0})
+            c["items"] += 1
+            c["today"] += max((r["today"] or {}).get("lo", 0), 0)
+            c["d7"] += max((r["d7"] or {}).get("lo", 0), 0)
+        top7 = [r for r in rows if r["d7"]]
+        sort_rows(top7, "d7", True, {"d7"})
+        return {"daily": daily_totals(store, now, max(2, min(days, 60))),
+                "categories": sorted(cats.values(), key=lambda c: -c["d7"]),
+                "top7": [{k: r[k] for k in ("id", "title", "category", "sales", "d7", "today")} for r in top7[:10]]}
 
     @app.get("/api/logs")
     def logs():

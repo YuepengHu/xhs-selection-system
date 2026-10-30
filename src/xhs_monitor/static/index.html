@@ -2,16 +2,17 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>小红书销量监控</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小红书选品助手</title>
 <style>
   body { font-family: -apple-system, "PingFang SC", sans-serif; margin: 0; color: #222; background: #fafafa; }
-  header { display: flex; align-items: center; gap: 16px; padding: 10px 24px; background: #fff; border-bottom: 1px solid #eee; }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 24px; background: #fff; border-bottom: 1px solid #eee; flex-wrap: wrap; }
   header h1 { font-size: 18px; margin: 0; }
   nav button { border: 0; background: none; padding: 8px 12px; cursor: pointer; font-size: 14px; border-bottom: 2px solid transparent; }
   nav button.on { border-color: #ff2442; color: #ff2442; font-weight: 600; }
   main { padding: 16px 24px; }
-  .bar { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; align-items: center; }
-  textarea { width: 420px; height: 52px; }
+  .bar, .row { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; align-items: center; }
+  textarea { width: 420px; max-width: 100%; height: 64px; }
   table { border-collapse: collapse; width: 100%; background: #fff; font-size: 13px; }
   th, td { border-bottom: 1px solid #eee; padding: 6px 8px; text-align: left; vertical-align: top; }
   th.s { cursor: pointer; white-space: nowrap; }
@@ -31,14 +32,20 @@
   .modal { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; align-items: center; justify-content: center; }
   .modal.on { display: flex; }
   .modal > div { background: #fff; padding: 16px; border-radius: 8px; width: min(760px, 94vw); box-sizing: border-box; max-height: 85vh; overflow: auto; }
-  .row { display: flex; gap: 8px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
   input[type=text], input[type=password], input[type=number], select { padding: 4px 6px; }
   h3 { margin: 18px 0 6px; font-size: 15px; }
+  pre.log { background: #111; color: #ddd; padding: 10px; border-radius: 6px; height: 180px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 14px; margin: 8px 0; }
+  .grid label { display: flex; flex-direction: column; font-size: 12px; color: #555; gap: 2px; }
+  .pill { padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #eee; }
+  .pill.run { background: #dbeafe; } .pill.done { background: #dcfce7; } .pill.error { background: #fee2e2; } .pill.stopped { background: #fef3c7; }
+  img.shot { max-height: 420px; border: 1px solid #ddd; border-radius: 6px; }
+  code { background: #f1f1f1; padding: 1px 4px; border-radius: 3px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>小红书销量监控</h1>
+  <h1>小红书选品助手</h1>
   <nav id="nav"></nav>
   <span id="msg" class="muted"></span>
 </header>
@@ -53,6 +60,45 @@
     <table><thead><tr><th>时间</th><th>规则</th><th>商品</th></tr></thead><tbody id="dash-alerts"></tbody></table>
     <h3>最近抓取</h3>
     <table><thead><tr><th>时间</th><th class="num">计划</th><th class="num">成功</th><th class="num">失败</th><th class="num">提醒</th><th>状态</th></tr></thead><tbody id="dash-runs"></tbody></table>
+  </section>
+
+  <section class="tab" id="tab-collect">
+    <div class="muted">用 USB 线连接安卓手机，手机上打开小红书并解锁，然后在这里设置要找什么商品，点“开始采集”。采到的商品会自动加入监控。</div>
+    <div class="row">设备：<select id="c-serial"></select><button id="c-refresh">刷新设备</button>
+      <label><input type="checkbox" id="c-awake"> 保持手机常亮</label><span id="c-awake-state" class="muted"></span></div>
+    <div class="row">采集方式：
+      <label><input type="radio" name="cmode" value="search" checked> 关键词搜商品</label>
+      <label><input type="radio" name="cmode" value="shop"> 整店采集</label>
+      <label><input type="radio" name="cmode" value="keyword_shops"> 关键词 → 前几个店铺</label></div>
+    <div class="row">
+      <textarea id="c-keywords" placeholder="关键词，每行一个"></textarea>
+      <textarea id="c-shops" placeholder="店铺 ID（24 位）或店铺名，每行一个"></textarea></div>
+    <div class="grid">
+      <label>本次最多采集几个<input type="number" id="c-limit" value="20" min="1"></label>
+      <label>每天最多点开几个<input type="number" id="c-cap" value="100" min="1"></label>
+      <label>最低销量<input type="number" id="c-minsales" value="0" min="0"></label>
+      <label>价格不低于<input type="number" id="c-minprice" min="0" step="0.01"></label>
+      <label>价格不高于<input type="number" id="c-maxprice" min="0" step="0.01"></label>
+      <label>排序<select id="c-sort"><option value="">默认</option><option>销量</option><option>新品</option><option>价格</option><option>综合</option></select></label>
+      <label>只采最近几天上新的<input type="number" id="c-newdays" min="1" placeholder="不限"></label>
+      <label>每个关键词采几个店铺<input type="number" id="c-shopsper" value="3" min="1"></label>
+      <label>每个店铺采几个商品<input type="number" id="c-pershop" value="10" min="1"></label>
+      <label>每次列表最多下滑几屏<input type="number" id="c-swipes" min="0" placeholder="不限"></label>
+      <label>加入监控时的分类<input type="text" id="c-category" value="未分类" list="cats"></label>
+      <label>手机分身名称<input type="text" id="c-instance" value="Ⅱ·小红书"></label>
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="c-all"> 采完整个店铺或整个结果（忽略上面的数量）</label>
+      <label><input type="checkbox" id="c-withsales"> 只要已经有销量的</label>
+      <label><input type="checkbox" id="c-push" checked> 采完自动加入监控</label></div>
+    <div class="bar"><button id="c-start">开始采集</button><button id="c-pause">暂停</button><button id="c-resume">继续</button><button id="c-stop">停止</button>
+      <span id="c-state" class="pill">空闲</span><span id="c-count" class="muted"></span>
+      <button id="c-dl-xlsx">下载 Excel</button><button id="c-dl-csv">下载 CSV</button></div>
+    <pre class="log" id="c-log"></pre>
+    <details><summary>手机画面（每 3 秒刷新一次）</summary>
+      <label><input type="checkbox" id="c-preview"> 开启实时预览</label><div><img class="shot" id="c-shot" alt=""></div></details>
+    <h3>本次采到的商品</h3>
+    <table><thead><tr><th>商品</th><th>价格</th><th>销量</th><th>店铺</th><th>标签</th><th>上新日期</th></tr></thead><tbody id="c-rows"></tbody></table>
   </section>
 
   <section class="tab" id="tab-items">
@@ -70,12 +116,14 @@
       <button id="run-all">强制抓取全部</button>
       <button id="copy-links">复制商品链接</button>
       <button id="set-cat">改分类</button>
+      <button id="pause-sel">暂停监控</button>
+      <button id="resume-sel">恢复监控</button>
       <button id="del-sel">删除选中</button>
-      <span class="muted">增量：精确值直接显示；销量被取整时显示下界和 ?</span>
     </div>
+    <div class="muted">增量：精确值直接显示；销量被取整时显示范围和 ?</div>
     <table>
       <thead><tr>
-        <th><input type="checkbox" id="chk-all"></th><th>名称 / 店铺</th><th>分类</th><th class="num">价格</th><th class="num">总销量</th>
+        <th><input type="checkbox" id="chk-all"></th><th>名称 / 店铺</th><th>分类</th><th>状态</th><th class="num">价格</th><th class="num">总销量</th>
         <th class="num s" data-sort="today">今日</th><th class="num s" data-sort="yesterday">昨日</th><th class="num s" data-sort="hour">上小时</th>
         <th class="num s" data-sort="d7">7天</th><th class="num s" data-sort="d30">30天</th><th>最近抓取</th><th></th>
       </tr></thead>
@@ -84,12 +132,23 @@
   </section>
 
   <section class="tab" id="tab-shops">
-    <div class="bar"><button id="copy-shops">复制店铺账号</button><span class="muted">店铺销量取自商品页，每个店铺每天记一次；精度约 0.1 万，所以小店铺的日增量常为未知</span></div>
+    <div class="bar"><button id="copy-shops">复制店铺账号</button>
+      <span class="muted">店铺销量取自商品页，每个店铺每天记一次；销量不足 1 万时是精确值，之后精度约 0.1 万。想监控新店铺：点“采集该店商品”，或在“采集”页选整店采集。</span></div>
     <table>
       <thead><tr><th><input type="checkbox" id="chk-shops"></th><th>店铺</th><th>粉丝</th><th class="num">商品数</th><th class="num">总销量</th>
         <th class="num s" data-shopsort="day">日增量</th><th class="num s" data-shopsort="d7">7天</th><th class="num s" data-shopsort="d30">30天</th><th>最近记录</th><th></th></tr></thead>
       <tbody id="shop-rows"></tbody>
     </table>
+  </section>
+
+  <section class="tab" id="tab-stats">
+    <div class="row">最近 <select id="st-days"><option>7</option><option selected>14</option><option>30</option></select> 天</div>
+    <h3>每天全部商品的销量增量合计</h3>
+    <div id="st-chart"></div>
+    <h3>分类汇总</h3>
+    <table><thead><tr><th>分类</th><th class="num">商品数</th><th class="num">今日增量</th><th class="num">7 天增量</th></tr></thead><tbody id="st-cats"></tbody></table>
+    <h3>7 天增量 Top 10</h3>
+    <table><thead><tr><th>商品</th><th>分类</th><th class="num">总销量</th><th class="num">今日</th><th class="num">7 天</th></tr></thead><tbody id="st-top"></tbody></table>
   </section>
 
   <section class="tab" id="tab-logs">
@@ -118,6 +177,18 @@
     <h3>分类管理</h3>
     <table><thead><tr><th>分类</th><th class="num">商品数</th><th></th></tr></thead><tbody id="cat-rows"></tbody></table>
     <div class="muted">删除分类不会删除商品，商品会归入"未分类"。</div>
+    <h3>接入 AI 助手（MCP）</h3>
+    <div class="muted">让 Claude、VS Code Copilot 等 AI 助手直接查询这里的数据。把下面的配置加到助手的 MCP 设置里，<code>&lt;项目目录&gt;</code> 换成本项目所在的文件夹：</div>
+    <pre class="log" style="height:auto">{
+  "mcpServers": {
+    "xhs-monitor": {
+      "command": "&lt;项目目录&gt;/.venv/bin/python",
+      "args": ["-m", "xhs_monitor.mcp_server"],
+      "env": { "XHS_MONITOR_URL": "http://127.0.0.1:8765" }
+    }
+  }
+}</pre>
+    <div class="muted">如果给监控服务设置了访问口令（环境变量 <code>XHS_API_TOKEN</code>），在 env 里同样加上 <code>XHS_API_TOKEN</code>。</div>
   </section>
 </main>
 
@@ -126,13 +197,20 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const say = t => { $("msg").textContent = t; clearTimeout(say.t); say.t = setTimeout(() => $("msg").textContent = "", 5000); };
-async function api(path, opt = {}) {
-  if (opt.json !== undefined) { opt.method = opt.method || "POST"; opt.headers = {"Content-Type": "application/json"}; opt.body = JSON.stringify(opt.json); }
-  const r = await fetch(path, opt);
+const say = t => { $("msg").textContent = t; clearTimeout(say.t); say.t = setTimeout(() => $("msg").textContent = "", 6000); };
+async function raw(path, opt = {}, retried = false) {
+  const h = {...(opt.headers || {})};
+  if (opt.json !== undefined) { opt.method = opt.method || "POST"; h["Content-Type"] = "application/json"; opt.body = JSON.stringify(opt.json); }
+  if (localStorage.token) h["Authorization"] = "Bearer " + localStorage.token;
+  const r = await fetch(path, {...opt, headers: h});
+  if (r.status === 401 && !retried) {
+    const t = prompt("请输入访问口令");
+    if (t) { localStorage.token = t; return raw(path, opt, true); }
+  }
   if (!r.ok) { let m = await r.text(); try { m = JSON.parse(m).detail || m; } catch (e) {} throw new Error(m); }
-  return r.json();
+  return r;
 }
+const api = async (path, opt) => (await raw(path, opt)).json();
 const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { say("出错：" + e.message); } };
 const fmtTime = s => s ? new Date(s).toLocaleString() : "-";
 const fmt = d => {
@@ -143,8 +221,8 @@ const fmt = d => {
   return d.lo > 0 ? `<span class="pos">+${d.lo}</span>` : d.lo < 0 ? `<span class="neg" title="销量回落">${d.lo}</span>` : "0";
 };
 
-const tabs = [["dash", "工作台"], ["items", "商品"], ["shops", "店铺"], ["logs", "日志"], ["settings", "设置"]];
-let tab = "dash", sort = "today", shopSort = "day", itemRows = [], shopRows = [];
+const tabs = [["dash", "工作台"], ["collect", "采集"], ["items", "商品"], ["shops", "店铺"], ["stats", "统计"], ["logs", "日志"], ["settings", "设置"]];
+let tab = "dash", sort = "today", shopSort = "day", itemRows = [], lastCount = -1, shotTimer = null;
 $("nav").innerHTML = tabs.map(([k, n]) => `<button data-tab="${k}">${n}</button>`).join("");
 $("nav").onclick = e => { if (e.target.dataset.tab) show(e.target.dataset.tab); };
 function show(k) {
@@ -161,9 +239,18 @@ async function banner() {
   if ($("resume")) $("resume").onclick = guard(async () => { await api("/api/resume", {method: "POST"}); say("已恢复"); refresh(); });
 }
 const itemLink = i => `https://www.xiaohongshu.com/goods-detail/${i}`;
-const runStatus = r => r.paused ? "已暂停" : "";
 const alertRow = a => `<tr><td>${fmtTime(a.ts)}</td><td>${esc(a.rule)}</td><td>${esc(a.title || a.item_id)}</td></tr>`;
-const runRow = r => `<tr><td>${fmtTime(r.ts)}</td><td class="num">${r.planned}</td><td class="num">${r.fetched}</td><td class="num">${r.failed}</td><td class="num">${r.alerts}</td><td>${runStatus(r)}</td></tr>`;
+const runRow = r => `<tr><td>${fmtTime(r.ts)}</td><td class="num">${r.planned}</td><td class="num">${r.fetched}</td><td class="num">${r.failed}</td><td class="num">${r.alerts}</td><td>${r.paused ? "已暂停" : ""}</td></tr>`;
+
+function bars(daily) {
+  const W = 720, H = 200, P = 26, max = Math.max(1, ...daily.map(d => d.total));
+  const bw = (W - 2 * P) / daily.length;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#fff;border:1px solid #eee">` + daily.map((d, i) => {
+    const h = (H - 2 * P) * d.total / max, x = P + i * bw;
+    return `<rect x="${x + 2}" y="${H - P - h}" width="${bw - 4}" height="${h}" fill="#ff2442"><title>${d.date}：增量合计 ${d.total}，${d.growing} 个商品在涨</title></rect>
+      <text x="${x + bw / 2}" y="${H - 8}" font-size="10" text-anchor="middle">${d.date.slice(5)}</text>`;
+  }).join("") + `<text x="4" y="${P}" font-size="11">${max}</text></svg>`;
+}
 
 async function refresh() {
   await banner();
@@ -174,6 +261,8 @@ async function refresh() {
     $("top").innerHTML = d.top_today.map(r => `<tr><td><a href="${itemLink(esc(r.id))}" target="_blank">${esc(r.title || r.id)}</a></td><td class="num">${r.price ?? "-"}</td><td class="num">${esc(r.sales ?? "-")}</td><td class="num">${fmt(r.today)}</td><td class="num">${fmt(r.hour)}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">暂无数据</td></tr>';
     $("dash-alerts").innerHTML = d.alerts.map(alertRow).join("") || '<tr><td colspan="3" class="muted">暂无</td></tr>';
     $("dash-runs").innerHTML = d.runs.map(runRow).join("") || '<tr><td colspan="6" class="muted">暂无</td></tr>';
+  } else if (tab === "collect") {
+    await Promise.all([loadDevices(), pollCollect(true)]);
   } else if (tab === "items") {
     const [cats, data] = await Promise.all([api("/api/categories"),
       api(`/api/items?sort=${sort}&q=${encodeURIComponent($("q").value)}&category=${encodeURIComponent($("catfilter").value)}`)]);
@@ -185,17 +274,24 @@ async function refresh() {
     $("rows").innerHTML = itemRows.map(i => `<tr>
       <td><input type="checkbox" class="chk" value="${esc(i.id)}" ${keep.has(i.id) ? "checked" : ""}></td>
       <td><a href="${itemLink(esc(i.id))}" target="_blank">${esc(i.title || i.id)}</a><div class="muted">${esc(i.shop_name || "")}</div></td>
-      <td>${esc(i.category)}</td><td class="num">${i.price ?? "-"}</td><td class="num">${esc(i.sales ?? "-")}</td>
+      <td>${esc(i.category)}</td><td>${i.status === "paused" ? '<span class="pill">已暂停</span>' : "监控中"}</td>
+      <td class="num">${i.price ?? "-"}</td><td class="num">${esc(i.sales ?? "-")}</td>
       <td class="num">${fmt(i.today)}</td><td class="num">${fmt(i.yesterday)}</td><td class="num">${fmt(i.hour)}</td>
       <td class="num">${fmt(i.d7)}</td><td class="num">${fmt(i.d30)}</td>
       <td class="muted">${fmtTime(i.last_fetch_at)}</td><td><button class="hist" data-id="${esc(i.id)}">曲线</button></td></tr>`).join("");
   } else if (tab === "shops") {
-    shopRows = (await api(`/api/shops?sort=${shopSort}`)).shops;
-    $("shop-rows").innerHTML = shopRows.map(s => `<tr>
+    const shops = (await api(`/api/shops?sort=${shopSort}`)).shops;
+    $("shop-rows").innerHTML = shops.map(s => `<tr>
       <td><input type="checkbox" class="chk-shop" value="${esc(s.id)}"></td><td>${esc(s.name || s.id)}</td><td>${esc(s.fans || "-")}</td>
       <td class="num">${s.item_count}</td><td class="num">${esc(s.sales || "-")}</td>
       <td class="num">${fmt(s.day)}</td><td class="num">${fmt(s.d7)}</td><td class="num">${fmt(s.d30)}</td>
-      <td class="muted">${fmtTime(s.last_ts)}</td><td><button class="del-shop" data-id="${esc(s.id)}">删除</button></td></tr>`).join("");
+      <td class="muted">${fmtTime(s.last_ts)}</td>
+      <td><button class="collect-shop" data-id="${esc(s.id)}">采集该店商品</button> <button class="del-shop" data-id="${esc(s.id)}">删除</button></td></tr>`).join("");
+  } else if (tab === "stats") {
+    const s = await api(`/api/stats?days=${$("st-days").value}`);
+    $("st-chart").innerHTML = bars(s.daily);
+    $("st-cats").innerHTML = s.categories.map(c => `<tr><td>${esc(c.category)}</td><td class="num">${c.items}</td><td class="num">${c.today}</td><td class="num">${c.d7}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">暂无</td></tr>';
+    $("st-top").innerHTML = s.top7.map(r => `<tr><td><a href="${itemLink(esc(r.id))}" target="_blank">${esc(r.title || r.id)}</a></td><td>${esc(r.category)}</td><td class="num">${esc(r.sales ?? "-")}</td><td class="num">${fmt(r.today)}</td><td class="num">${fmt(r.d7)}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">暂无</td></tr>';
   } else if (tab === "logs") {
     const l = await api("/api/logs");
     $("log-runs").innerHTML = l.runs.map(runRow).join("");
@@ -209,6 +305,57 @@ async function refresh() {
     $("cat-rows").innerHTML = cats.map(c => `<tr><td>${esc(c.name)}</td><td class="num">${c.count}</td>
       <td><button class="ren-cat" data-name="${esc(c.name)}">改名</button> <button class="del-cat" data-name="${esc(c.name)}">删除</button></td></tr>`).join("");
   }
+}
+
+/* ---- 采集页 ---- */
+const lines = id => $(id).value.split("\n").map(s => s.trim()).filter(Boolean);
+const numv = id => $(id).value === "" ? null : Number($(id).value);
+const serialv = () => $("c-serial").value || null;
+async function loadDevices() {
+  try {
+    const d = await api("/api/collector/devices"), cur = $("c-serial").value;
+    $("c-serial").innerHTML = d.length ? d.map(x => `<option value="${esc(x.serial)}" ${x.serial === cur ? "selected" : ""}>${esc(x.model || x.serial)}（${esc(x.state)}）</option>`).join("")
+      : '<option value="">没有检测到手机</option>';
+  } catch (e) { $("c-serial").innerHTML = '<option value="">读取设备失败</option>'; }
+}
+async function pollCollect(force) {
+  const s = await api("/api/collector/status");
+  const names = {idle: "空闲", running: "采集中", done: "已完成", error: "出错", stopped: "已停止"};
+  $("c-state").className = "pill " + (s.state === "running" ? "run" : s.state);
+  $("c-state").textContent = (s.paused && s.state === "running" ? "已暂停" : names[s.state] || s.state);
+  $("c-count").textContent = s.count ? `已采到 ${s.count} 个` : "";
+  const box = $("c-log"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
+  box.textContent = s.log.join("\n");
+  if (atEnd) box.scrollTop = box.scrollHeight;
+  if (s.count !== lastCount || force) {
+    lastCount = s.count;
+    const rows = await api("/api/collector/records");
+    $("c-rows").innerHTML = rows.map(r => `<tr><td><a href="${itemLink(esc(r.item_id))}" target="_blank">${esc(r.title)}</a></td><td>${r.price ?? "-"}</td><td>${esc(r.sales_text ?? "-")}</td><td>${esc(r.shop ?? "")}</td><td>${esc((r.shop_tags + " " + r.cart_info).trim())}</td><td>${esc(r.listed_date ?? "")}</td></tr>`).join("");
+  }
+}
+async function startCollect() {
+  const mode = document.querySelector("input[name=cmode]:checked").value;
+  const shopLines = lines("c-shops");
+  await api("/api/collector/start", {json: {
+    mode, keywords: lines("c-keywords"),
+    shop_ids: shopLines.filter(x => /^[0-9a-f]{24}$/.test(x)), shop_names: shopLines.filter(x => !/^[0-9a-f]{24}$/.test(x)),
+    limit: numv("c-limit"), all: $("c-all").checked, daily_cap: numv("c-cap"), min_sales: numv("c-minsales"),
+    min_price: numv("c-minprice"), max_price: numv("c-maxprice"), only_with_sales: $("c-withsales").checked,
+    sort: $("c-sort").value, new_days: numv("c-newdays"), shops_per_keyword: numv("c-shopsper"), per_shop: numv("c-pershop"),
+    max_swipes: numv("c-swipes"), instance: $("c-instance").value, serial: serialv(), category: $("c-category").value, push: $("c-push").checked}});
+  say("已开始采集"); lastCount = -1; pollCollect(true);
+}
+async function refreshShot() {
+  if (tab !== "collect" || !$("c-preview").checked) return;
+  const q = serialv() ? "?serial=" + encodeURIComponent(serialv()) : "";
+  const blob = await (await raw("/api/collector/screenshot" + q)).blob();
+  const old = $("c-shot").src; $("c-shot").src = URL.createObjectURL(blob);
+  if (old.startsWith("blob:")) URL.revokeObjectURL(old);
+}
+async function download(kind) {
+  const blob = await (await raw("/api/collector/download?kind=" + kind)).blob();
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = `小红书采集结果.${kind}`; a.click(); URL.revokeObjectURL(a.href);
 }
 
 function addRuleRow(r = {name: "", kind: "hour", min_hour_delta: 5, min_price: "", days: 3, min_daily: 1}) {
@@ -255,6 +402,7 @@ async function showHistory(id) {
   $("modal").classList.add("on");
 }
 const copy = async (text, what) => { await navigator.clipboard.writeText(text); say(`已复制 ${what}`); };
+const needSel = () => { const ids = selected(); if (!ids.length) say("先选中商品"); return ids; };
 
 document.addEventListener("click", guard(async e => {
   const t = e.target, id = t.id, cls = t.classList;
@@ -265,16 +413,20 @@ document.addEventListener("click", guard(async e => {
     $("text").value = ""; setTimeout(guard(refresh), 3000);
   } else if (id === "run-due") { await api("/api/run", {method: "POST"}); say("已开始抓取到期商品"); }
   else if (id === "run-all") { if (confirm("强制抓取全部商品？请求量较大。")) { await api("/api/run?force=true", {method: "POST"}); say("已开始抓取全部"); } }
-  else if (id === "run-sel") { const ids = selected(); if (!ids.length) return say("先选中商品"); await api("/api/run", {json: {ids}}); say(`已开始抓取 ${ids.length} 个`); }
-  else if (id === "copy-links") { const ids = selected(); if (!ids.length) return say("先选中商品"); await copy(ids.map(itemLink).join("\n"), `${ids.length} 个链接`); }
-  else if (id === "set-cat") { const ids = selected(); if (!ids.length) return say("先选中商品"); const c = prompt("改成哪个分类？"); if (c) { await api("/api/items/bulk", {json: {ids, action: "category", category: c}}); refresh(); } }
-  else if (id === "del-sel") { const ids = selected(); if (!ids.length) return say("先选中商品"); if (confirm(`删除 ${ids.length} 个商品及其历史？`)) { await api("/api/items/bulk", {json: {ids, action: "delete"}}); refresh(); } }
+  else if (id === "run-sel") { const ids = needSel(); if (ids.length) { await api("/api/run", {json: {ids}}); say(`已开始抓取 ${ids.length} 个`); } }
+  else if (id === "copy-links") { const ids = needSel(); if (ids.length) await copy(ids.map(itemLink).join("\n"), `${ids.length} 个链接`); }
+  else if (id === "set-cat") { const ids = needSel(); if (ids.length) { const c = prompt("改成哪个分类？"); if (c) { await api("/api/items/bulk", {json: {ids, action: "category", category: c}}); refresh(); } } }
+  else if (id === "pause-sel" || id === "resume-sel") { const ids = needSel(); if (ids.length) { await api("/api/items/bulk", {json: {ids, action: id === "pause-sel" ? "pause" : "resume"}}); refresh(); } }
+  else if (id === "del-sel") { const ids = needSel(); if (ids.length && confirm(`删除 ${ids.length} 个商品及其历史？`)) { await api("/api/items/bulk", {json: {ids, action: "delete"}}); refresh(); } }
   else if (id === "chk-all") document.querySelectorAll(".chk").forEach(c => c.checked = t.checked);
   else if (id === "chk-shops") document.querySelectorAll(".chk-shop").forEach(c => c.checked = t.checked);
   else if (id === "copy-shops") { const ids = [...document.querySelectorAll(".chk-shop:checked")].map(c => c.value); if (!ids.length) return say("先选中店铺"); await copy(ids.join("\n"), `${ids.length} 个店铺账号`); }
   else if (cls.contains("hist")) await showHistory(t.dataset.id);
   else if (cls.contains("del-shop")) { if (confirm("删除该店铺记录？下次抓到其商品时会重新出现。")) { await api("/api/shops/" + t.dataset.id, {method: "DELETE"}); refresh(); } }
-  else if (t.dataset.sort) { sort = t.dataset.sort; refresh(); }
+  else if (cls.contains("collect-shop")) {
+    document.querySelector("input[name=cmode][value=shop]").checked = true;
+    $("c-shops").value = t.dataset.id; show("collect"); say("已填好店铺 ID，确认参数后点“开始采集”");
+  } else if (t.dataset.sort) { sort = t.dataset.sort; refresh(); }
   else if (t.dataset.shopsort) { shopSort = t.dataset.shopsort; refresh(); }
   else if (id === "add-rule") addRuleRow();
   else if (cls.contains("r-del")) t.closest("tr").remove();
@@ -287,12 +439,27 @@ document.addEventListener("click", guard(async e => {
     say(r.configured ? "测试结果：" + Object.entries(r.result).map(([k, v]) => `${k} ${v ? "成功" : "失败"}`).join("，") : "还没有配置推送渠道");
   } else if (cls.contains("ren-cat")) { const n = prompt("新的分类名", t.dataset.name); if (n) { await api("/api/categories/" + encodeURIComponent(t.dataset.name), {method: "PUT", json: {category: n}}); refresh(); } }
   else if (cls.contains("del-cat")) { if (confirm("删除分类？商品会归入“未分类”。")) { await api("/api/categories/" + encodeURIComponent(t.dataset.name), {method: "DELETE"}); refresh(); } }
+  else if (id === "c-start") await startCollect();
+  else if (id === "c-stop") { await api("/api/collector/control/stop", {method: "POST"}); say("正在停止…"); }
+  else if (id === "c-pause") { await api("/api/collector/control/pause", {method: "POST"}); say("已暂停"); }
+  else if (id === "c-resume") { await api("/api/collector/control/resume", {method: "POST"}); say("已继续"); }
+  else if (id === "c-refresh") await loadDevices();
+  else if (id === "c-dl-xlsx") await download("xlsx");
+  else if (id === "c-dl-csv") await download("csv");
 }));
+$("c-awake").onchange = guard(async e => {
+  const s = await api("/api/collector/awake", {json: {on: e.target.checked, serial: serialv()}});
+  $("c-awake-state").textContent = e.target.checked ? "已开启（采集结束后会自动恢复原设置）" : "已恢复原设置";
+});
+$("c-preview").onchange = guard(refreshShot);
 $("q").oninput = guard(refresh);
 $("catfilter").onchange = guard(refresh);
+$("st-days").onchange = guard(refresh);
 
 show("dash");
-setInterval(() => { if (!document.hidden && tab !== "settings" && !$("modal").classList.contains("on")) guard(refresh)(); }, 60000);
+setInterval(() => { if (!document.hidden && tab !== "settings" && tab !== "collect" && !$("modal").classList.contains("on")) guard(refresh)(); }, 60000);
+setInterval(() => { if (!document.hidden && tab === "collect") guard(() => pollCollect(false))(); }, 2000);
+setInterval(() => guard(refreshShot)(), 3000);
 </script>
 </body>
 </html>

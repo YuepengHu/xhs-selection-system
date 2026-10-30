@@ -75,6 +75,7 @@ class Item:
     created_at: datetime
     last_fetch_at: datetime | None
     shop_id: str | None = None
+    status: str = "active"
 
 
 def _item(r: sqlite3.Row) -> Item:
@@ -82,7 +83,7 @@ def _item(r: sqlite3.Row) -> Item:
         r["id"], r["title"], r["price"], r["shop_sales"], r["category"],
         datetime.fromisoformat(r["created_at"]),
         datetime.fromisoformat(r["last_fetch_at"]) if r["last_fetch_at"] else None,
-        r["shop_id"],
+        r["shop_id"], r["status"] or "active",
     )
 
 
@@ -97,7 +98,9 @@ class Store:
             cols = {r["name"] for r in self._db.execute("PRAGMA table_info(items)")}
             if "shop_id" not in cols:
                 self._db.execute("ALTER TABLE items ADD COLUMN shop_id TEXT")
-                self._db.commit()
+            if "status" not in cols:
+                self._db.execute("ALTER TABLE items ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+            self._db.commit()
 
     def _exec(self, sql: str, args: tuple = ()):
         with self._lock:
@@ -125,6 +128,9 @@ class Store:
 
     def delete_item(self, item_id: str) -> bool:
         return self._exec("DELETE FROM items WHERE id = ?", (item_id,)).rowcount == 1
+
+    def set_status(self, item_id: str, status: str) -> bool:
+        return self._exec("UPDATE items SET status = ? WHERE id = ?", (status, item_id)).rowcount == 1
 
     def set_category(self, item_id: str, category: str) -> None:
         self._exec("UPDATE items SET category = ? WHERE id = ?", (category, item_id))
@@ -167,6 +173,11 @@ class Store:
             "SELECT ts, ok, raw, low, step, price, error FROM snapshots "
             "WHERE item_id = ? ORDER BY ts DESC LIMIT ?", (item_id, limit))
         return [dict(r) for r in rows]
+
+    def snapshots_since(self, since: datetime) -> list[tuple[str, datetime, int, int]]:
+        rows = self._all("SELECT item_id, ts, low, step FROM snapshots WHERE ok = 1 AND ts >= ? ORDER BY ts",
+                         (_iso(since),))
+        return [(r["item_id"], datetime.fromisoformat(r["ts"]), r["low"], r["step"]) for r in rows]
 
     def last_snapshot(self, item_id: str) -> Snap | None:
         rows = self._all(

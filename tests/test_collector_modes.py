@@ -50,6 +50,7 @@ class Fake:
         self.page, self.shop_id, self.tab, self.sort = "search", None, "goods", None
         self.scroll, self.cur, self.state = 0, None, "list"
         self.stack = []
+        self.came_from = None
 
     def screen_height(self): return H
 
@@ -112,10 +113,14 @@ class Fake:
                 return
             if self.page == "search" and px + 84 <= x <= px + 400 and py + 250 <= y <= py + 300:
                 self.page, self.shop_id, self.tab, self.sort, self.scroll = "shop", p["shop_id"], "goods", None, 0
+                self.came_from = "search"
                 return
 
     def back(self):
-        self.state = "list"
+        if self.state == "detail":
+            self.state = "list"
+        elif self.page == "shop" and self.came_from == "search":
+            self.page, self.came_from, self.scroll = "search", None, 0
 
     def swipe_up(self, h):
         self.scroll = min(self.scroll + 1400, max(0, (len(self._list()) // 2) * self.ROW - 1500))
@@ -205,6 +210,23 @@ def test_stop_file_stops_and_pause_file_blocks_until_removed(tmp_path):
     ctl = Control(tmp_path, sleep=lambda s: (calls.append(s), (tmp_path / "PAUSE").unlink()))
     ctl.check()
     assert calls == [1]
+
+
+def test_keyword_then_shops_collects_per_shop_and_returns_to_search(tmp_path):
+    col, cap, fake = make(tmp_path)
+    recs = col.run_keyword_shops("教资", Filters(), cap, shops=2, per_shop=2)
+    assert ids(recs) == [f"{i:024x}" for i in (1, 2, 6, 7)]
+    assert [r.shop_id for r in recs] == [SHOP_A, SHOP_A, SHOP_B, SHOP_B]
+    assert recs[0].source == "关键词:教资/店铺:优学资料屋的店"
+
+
+def test_max_swipes_limits_scrolling(tmp_path):
+    many = [{"id": f"{i:024x}", "title": f"教资真题资料合集第{i}号", "price": 2.99 + i, "n": 100 * i,
+             "shop": f"店{i}", "shop_id": SHOP_A, "date": "今天"} for i in range(1, 25)]
+    col, cap, _ = make(tmp_path, Fake(many), limit=100, max_swipes=0)
+    assert len(col.run("教资", Filters(), cap)) == 6
+    col2, cap2, _ = make(tmp_path / "b", Fake(many), limit=100, max_swipes=1)
+    assert 6 < len(col2.run("教资", Filters(), cap2)) <= 12
 
 
 def test_daily_cap_old_state_format_still_loads(tmp_path):
