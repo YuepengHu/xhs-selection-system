@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - run: uv sync
+
+      - run: uv run pytest -q
+
+      - name: 命令行入口可用
+        run: uv run python -m xhs_collector keyword-shops -h
+
+      - name: 系统 Chrome 能被 Playwright 启动
+        run: >
+          uv run python -c "from playwright.sync_api import sync_playwright as s;
+          p=s().start(); b=p.chromium.launch(channel='chrome', headless=True);
+          pg=b.new_page(); pg.set_content('<title>ok</title>'); print(pg.title()); b.close(); p.stop()"
+
+      - name: 启动.bat 和 停止.bat 冒烟测试
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:XHS_NO_SCHEDULER = "1"
+          Start-Process -FilePath cmd -ArgumentList "/c", "启动.bat" -WindowStyle Hidden
+          $ok = $false
+          foreach ($i in 1..60) {
+            try {
+              $r = Invoke-WebRequest -Uri http://127.0.0.1:8765/api/status -UseBasicParsing
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch { Start-Sleep -Seconds 1 }
+          }
+          if (-not $ok) { throw "启动.bat 后服务没有起来" }
+          cmd /c "停止.bat < NUL"
+          Start-Sleep -Seconds 2
+          $alive = $false
+          try {
+            Invoke-WebRequest -Uri http://127.0.0.1:8765/api/status -UseBasicParsing | Out-Null
+            $alive = $true
+          } catch { }
+          if ($alive) { throw "停止.bat 后服务仍在运行" }
+
+      - name: 启动.command 和 停止.command 冒烟测试
+        if: runner.os == 'macOS'
+        run: |
+          chmod +x *.command
+          export XHS_NO_SCHEDULER=1
+          ./启动.command < /dev/null > /tmp/start.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8765/api/status >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8765/api/status
+          ./停止.command < /dev/null
+          sleep 2
+          ! curl -sf http://127.0.0.1:8765/api/status
