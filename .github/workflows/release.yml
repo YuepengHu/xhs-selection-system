@@ -1,0 +1,38 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 打包 Mac 版和 Windows 版
+        run: |
+          set -euo pipefail
+          git config core.quotepath off
+          V="${GITHUB_REF_NAME}"
+          COMMON=(":(exclude).github" ":(exclude).gitattributes" ":(exclude)tests")
+          git archive --format=zip --prefix="xhs-selection-system-${V}-mac/" \
+            -o "xhs-selection-system-${V}-mac.zip" HEAD "${COMMON[@]}" \
+            ":(exclude)安装.bat" ":(exclude)启动.bat" ":(exclude)停止.bat"
+          git archive --format=zip --prefix="xhs-selection-system-${V}-windows/" \
+            -o "xhs-selection-system-${V}-windows.zip" HEAD "${COMMON[@]}" \
+            ":(exclude)安装.command" ":(exclude)启动.command" ":(exclude)停止.command" \
+            ":(exclude)deploy"
+          ls -l *.zip
+
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" *.zip \
+            --title "${GITHUB_REF_NAME}" \
+            --prerelease \
+            --notes-file docs/release-notes.md
