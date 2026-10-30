@@ -26,20 +26,28 @@ class Notifier:
         s, result = self._settings(), {}
         if s.pushplus_token:
             result["pushplus"] = await self._post("https://www.pushplus.plus/send", {
-                "token": s.pushplus_token, "title": title, "content": body, "template": "markdown"})
+                "token": s.pushplus_token, "title": title, "content": body, "template": "markdown"},
+                ok=lambda d: d.get("code") == 200)
         if s.dingtalk_webhook:
             result["dingtalk"] = await self._post(_ding_url(s), {
-                "msgtype": "markdown", "markdown": {"title": title, "text": f"### {title}\n\n{body}"}})
+                "msgtype": "markdown", "markdown": {"title": title, "text": f"### {title}\n\n{body}"}},
+                ok=lambda d: d.get("errcode") == 0)
         return result
 
-    async def _post(self, url: str, payload: dict) -> bool:
+    async def _post(self, url: str, payload: dict, ok: Callable[[dict], bool]) -> bool:
+        # 两个服务失败时也返回 HTTP 200，要看返回内容里的状态码
         try:
             r = await self._client.post(url, json=payload)
             r.raise_for_status()
-            return True
-        except httpx.HTTPError as e:
+            data = r.json()
+        except (httpx.HTTPError, ValueError) as e:
             log.warning("通知发送失败: %s", type(e).__name__)
             return False
+        if not isinstance(data, dict) or not ok(data):
+            reason = data.get("msg") or data.get("errmsg") if isinstance(data, dict) else ""
+            log.warning("通知被服务拒绝: %s", str(reason)[:80])
+            return False
+        return True
 
 
 def _ding_url(s: Settings) -> str:
