@@ -1,15 +1,17 @@
 import argparse
 import logging
 import sys
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
 import httpx
 
+from . import keepawake
 from .adb import Adb, AdbError, connect_wifi, enable_wifi, list_devices
 from .collector import Abort, Collector, Config, DailyCap, Filters, Stop, write_csv, write_xlsx
 
-COMMANDS = {"search", "shop", "dump", "devices", "wifi-on", "connect"}
+COMMANDS = {"search", "shop", "dump", "devices", "wifi-on", "connect", "awake"}
 ALL_LIMIT = 100000
 
 
@@ -28,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--push", metavar="URL", help="采集后调用系统 2，如 http://127.0.0.1:8765")
     common.add_argument("--category", default="未分类")
     common.add_argument("--xlsx", action="store_true", help="同时输出 Excel")
+    common.add_argument("--no-keep-awake", action="store_true", help="不在采集期间自动让手机常亮")
 
     p = argparse.ArgumentParser(prog="xhs_collector", description="用 ADB 在小红书里采集商品 ID")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -48,6 +51,10 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--out", type=Path, default=Path("data/collector"))
 
     sub.add_parser("devices", help="列出 adb 设备")
+    aw = sub.add_parser("awake", help="手动开关手机常亮：on 保存原设置后调到最长息屏并保持充电唤醒，off 恢复，status 查看")
+    aw.add_argument("action", choices=["on", "off", "status"])
+    aw.add_argument("--serial")
+    aw.add_argument("--out", type=Path, default=Path("data/collector"))
     w = sub.add_parser("wifi-on", help="通过 USB 开启手机的 TCP 调试端口并打印连接地址")
     w.add_argument("--serial")
     c = sub.add_parser("connect", help="adb connect IP[:端口]")
@@ -94,6 +101,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if a.cmd == "dump":
             return _dump(a)
+        if a.cmd == "awake":
+            adb, state = Adb(a.serial), a.out / "awake.json"
+            if a.action == "on":
+                print("已保存的原设置：", keepawake.enable(adb, state) or "无变化")
+                adb.shell("input keyevent KEYCODE_WAKEUP")
+            elif a.action == "off":
+                print("已恢复：", keepawake.restore(adb, state) or "没有需要恢复的设置")
+            print("当前：", keepawake.status(adb))
+            return 0
     except AdbError as e:
         print(f"失败：{e}", file=sys.stderr)
         return 1
@@ -117,16 +133,18 @@ def main(argv: list[str] | None = None) -> int:
 
     records, code = [], 0
     try:
-        col = Collector(Adb(a.serial), cfg)
-        if a.cmd == "search":
-            for kw in _keywords(a):
-                records += col.run(kw, filters, cap, show)
-        else:
-            new_tab = a.new_days is not None
-            for sid in a.id:
-                records += col.run_shop(sid, filters, cap, show, new_tab=new_tab, sort=a.sort)
-            for name in a.name:
-                records += col.run_shop_name(name, filters, cap, show, new_tab=new_tab, sort=a.sort)
+        adb = Adb(a.serial)
+        col = Collector(adb, cfg)
+        with nullcontext() if a.no_keep_awake else keepawake.keep_awake(adb, a.out / "awake.json"):
+            if a.cmd == "search":
+                for kw in _keywords(a):
+                    records += col.run(kw, filters, cap, show)
+            else:
+                new_tab = a.new_days is not None
+                for sid in a.id:
+                    records += col.run_shop(sid, filters, cap, show, new_tab=new_tab, sort=a.sort)
+                for name in a.name:
+                    records += col.run_shop_name(name, filters, cap, show, new_tab=new_tab, sort=a.sort)
     except (Abort, AdbError) as e:
         print(f"已停止：{e}", file=sys.stderr)
         code = 1

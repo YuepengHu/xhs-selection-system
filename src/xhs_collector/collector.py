@@ -172,6 +172,12 @@ class Collector:
         self.cfg.out_dir.mkdir(parents=True, exist_ok=True)
         shot = self.cfg.out_dir / f"abort-{datetime.now():%Y%m%d-%H%M%S}.png"
         try:
+            pkg, _ = self.adb.focus()
+            if pkg in ("com.android.systemui", "com.vivo.keyguard", "com.android.keyguard"):
+                msg += "（手机处于锁屏状态，请解锁；可用 awake on 或默认的常亮功能避免熄屏）"
+        except Exception:
+            pass
+        try:
             self.adb.screenshot(str(shot))
             msg += f"，已截图 {shot}"
         except Exception:
