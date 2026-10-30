@@ -16,7 +16,7 @@
 
 ## 安装和测试
 
-依赖：Python 3.11+、uv、adb、本机已安装 Google Chrome（系统 2 用它加载商品页，不需要登录）。支持 macOS 和 Windows 10/11：macOS 双击 `安装.command` / `启动.command` / `停止.command`，Windows 双击对应的 `.bat`。Windows 版没有在真机上测过。
+依赖：Python 3.11+、uv、adb、本机已安装 Google Chrome（系统 2 用它加载商品页，不需要登录）。支持 macOS 和 Windows 10/11：macOS 双击 `安装.command` / `启动.command` / `停止.command`，Windows 双击对应的 `.bat`。Windows 版已通过 GitHub Actions 的 Windows 虚拟机测试（测试用例、启动停止脚本、Chrome 启动），没有接真实手机验证过。
 
 ```bash
 uv sync
