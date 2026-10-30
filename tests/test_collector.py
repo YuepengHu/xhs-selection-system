@@ -11,7 +11,7 @@ H = 2772
 
 
 def test_parse_real_goods_list_skips_partially_visible_cards():
-    cards = parse_cards(parse_dump((FIX / "goods1.xml").read_text()), H)
+    cards = parse_cards(parse_dump((FIX / "goods1.xml").read_text(encoding="utf-8")), H)
     assert [(c.price, c.sales_text, c.shop, c.shop_sales) for c in cards] == [
         (2.99, "已售5480", "优学资料屋的店", "销量3万+"),
         (2.23, "已售2418", "上岸吧你的店", "销量1万+"),
@@ -20,10 +20,10 @@ def test_parse_real_goods_list_skips_partially_visible_cards():
 
 
 def test_parse_real_detail_and_chooser():
-    d = parse_detail(parse_dump((FIX / "detail1.xml").read_text()))
+    d = parse_detail(parse_dump((FIX / "detail1.xml").read_text(encoding="utf-8")))
     assert (d.price, d.sales_text) == (2.99, "已售5480") and d.title.startswith("【秒发】")
-    assert is_chooser(parse_dump((FIX / "chooser.xml").read_text()))
-    assert not is_chooser(parse_dump((FIX / "goods1.xml").read_text()))
+    assert is_chooser(parse_dump((FIX / "chooser.xml").read_text(encoding="utf-8")))
+    assert not is_chooser(parse_dump((FIX / "goods1.xml").read_text(encoding="utf-8")))
 
 
 def test_risk_text_ignores_long_titles():

@@ -8,7 +8,7 @@ PORT="${XHS_PORT:-8765}"
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "还没有安装，请先双击“安装.command”。"
-  read -r -p "按回车键关闭..." _
+  read -r -p "按回车键关闭..." _ || true
   exit 1
 fi
 

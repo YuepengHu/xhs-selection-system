@@ -9,4 +9,4 @@ else
   kill $PIDS
   echo "已停止。"
 fi
-read -r -p "按回车键关闭..." _
+read -r -p "按回车键关闭..." _ || true

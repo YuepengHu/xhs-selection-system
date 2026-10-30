@@ -13,7 +13,7 @@ SHOP_A, SHOP_B = "a" * 24, "b" * 24
 
 
 def test_parse_real_search_cards_carry_shop_tags_and_cart_info():
-    cards = parse_cards(parse_dump((FIX / "shoplist.xml").read_text()), H)
+    cards = parse_cards(parse_dump((FIX / "shoplist.xml").read_text(encoding="utf-8")), H)
     by_shop = {c.shop: c for c in cards}
     assert by_shop["随便考都过的店"].shop_tags == "上新12件"
     c2 = by_shop["不二战的店"]
@@ -22,13 +22,13 @@ def test_parse_real_search_cards_carry_shop_tags_and_cart_info():
 
 
 def test_parse_real_shop_page_has_no_shop_row_and_truncated_price():
-    cards = parse_cards(parse_dump((FIX / "shop1.xml").read_text()), H, shop_row=False)
+    cards = parse_cards(parse_dump((FIX / "shop1.xml").read_text(encoding="utf-8")), H, shop_row=False)
     assert [c.sales_text for c in cards] == ["已售149", "已售173", "已售718", "已售17"]
     assert all(c.shop is None for c in cards) and cards[-1].price == 1.0
 
 
 def test_parse_real_new_tab_cards_without_sales_and_date_header():
-    nodes = parse_dump((FIX / "shop_new.xml").read_text())
+    nodes = parse_dump((FIX / "shop_new.xml").read_text(encoding="utf-8"))
     cards = parse_cards(nodes, H, shop_row=False)
     assert len(cards) == 3 and all(c.sales_text is None for c in cards)
     assert date_headers(nodes) == [(2379, "10-28")]

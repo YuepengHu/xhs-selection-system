@@ -9,7 +9,7 @@ echo "== 小红书选品系统：安装 =="
 if ! command -v brew >/dev/null 2>&1; then
   echo "没有找到 Homebrew（Mac 上的软件安装工具）。"
   echo "请先按教程第 1 步安装 Homebrew，然后再双击本文件。"
-  read -r -p "按回车键关闭..." _
+  read -r -p "按回车键关闭..." _ || true
   exit 1
 fi
 
@@ -25,7 +25,7 @@ fi
 
 if [ ! -d "/Applications/Google Chrome.app" ]; then
   echo "没有找到 Google Chrome。请先安装：https://www.google.cn/chrome/"
-  read -r -p "按回车键关闭..." _
+  read -r -p "按回车键关闭..." _ || true
   exit 1
 fi
 
@@ -34,4 +34,4 @@ uv sync
 
 echo
 echo "安装完成。以后双击“启动.command”即可使用。"
-read -r -p "按回车键关闭..." _
+read -r -p "按回车键关闭..." _ || true
