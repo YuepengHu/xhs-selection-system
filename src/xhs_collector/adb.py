@@ -23,7 +23,8 @@ class Adb:
     def _run(self, *args: str, binary: bool = False):
         cmd = ["adb"] + (["-s", self.serial] if self.serial else []) + list(args)
         try:
-            r = subprocess.run(cmd, capture_output=True, text=not binary, timeout=self._timeout)
+            text_kw = {} if binary else {"text": True, "encoding": "utf-8", "errors": "replace"}
+            r = subprocess.run(cmd, capture_output=True, timeout=self._timeout, **text_kw)
         except subprocess.TimeoutExpired as e:
             raise AdbError(f"adb 超时: {args[:2]}") from e
         if r.returncode != 0:
@@ -112,7 +113,8 @@ def sleep_jitter(lo: float, hi: float) -> None:
 
 
 def _adb(*args: str, timeout: int = 20) -> str:
-    r = subprocess.run(["adb", *args], capture_output=True, text=True, timeout=timeout)
+    r = subprocess.run(["adb", *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=timeout)
     return (r.stdout + r.stderr).strip()
 
 

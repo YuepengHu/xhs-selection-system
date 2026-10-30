@@ -16,7 +16,7 @@ def _get(adb, key: str, ns: str) -> str:
 
 def enable(adb, state_path: Path) -> dict[str, str]:
     """保存原值后把息屏时间调到最大，并让充电时保持唤醒覆盖 AC、USB、无线；已保存过原值时不覆盖。"""
-    saved = json.loads(state_path.read_text()) if state_path.exists() else {}
+    saved = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
     for key, (ns, value) in SETTINGS.items():
         current = _get(adb, key, ns)
         if current != value and key not in saved and current.lstrip("-").isdigit():

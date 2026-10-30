@@ -105,7 +105,7 @@ class DailyCap:
     def __init__(self, path: Path, cap: int):
         self._path, self._cap = path, cap
         self._today = date.today().isoformat()
-        data = json.loads(path.read_text()) if path.exists() else {}
+        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         counts = data.get("counts", {k: v for k, v in data.items() if k != "seen"})
         self._count = counts.get(self._today, 0)
         self._seen: list[str] = list(data.get("seen", []))
@@ -131,7 +131,7 @@ class DailyCap:
                 self._seen_set.discard(self._seen.pop(0))
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(json.dumps({"counts": {self._today: self._count}, "seen": self._seen},
-                                         ensure_ascii=False))
+                                         ensure_ascii=False), encoding="utf-8")
 
 
 class Control:
